@@ -40,8 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Use the VM handle for further interaction
-    let vm_id: uuid::Uuid = vm_resp.id.parse()?;
-    let vm = fs.vm(vm_id);
+    let vm = fs.vm(&vm_resp.id);
 
     // Check what's running
     let exec_result = vm.exec("ps aux | head -20").await?;
@@ -59,6 +58,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => println!("No README.md: {e}"),
     }
 
-    println!("\nVM is running. Delete with: freestyle vm delete {vm_id}");
+    println!("\nVM is running. Delete with: freestyle vm delete {}", vm_resp.id);
     Ok(())
 }

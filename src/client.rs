@@ -88,7 +88,7 @@ impl Freestyle {
     }
 
     /// Get a VM handle for convenience methods (fs, exec, systemd).
-    pub fn vm(&self, vm_id: Uuid) -> crate::VmHandle {
+    pub fn vm(&self, vm_id: impl Into<String>) -> crate::VmHandle {
         crate::VmHandle::new(self.client.clone(), vm_id)
     }
 

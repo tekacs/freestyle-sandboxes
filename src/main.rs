@@ -445,9 +445,8 @@ async fn ssh_into_vm(fs: &Freestyle, vm_id: &str, delete: bool) -> R {
     eprintln!("Cleanup complete.");
 
     if delete {
-        let vm_uuid: Uuid = vm_id.parse()?;
         eprintln!("Deleting VM {vm_id}...");
-        fs.vm(vm_uuid).delete().await?;
+        fs.vm(vm_id).delete().await?;
         eprintln!("VM deleted.");
     }
 
@@ -520,8 +519,6 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
                 eprintln!("Creating VM...");
             }
             let vm = fs.client().create_vm(&request).await?.into_inner();
-            let vm_id: Uuid = vm.id.parse()?;
-
             if json && exec.is_none() && !ssh {
                 return json_out(&vm);
             }
@@ -534,7 +531,7 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
             }
 
             if let Some(cmd) = &exec {
-                let handle = fs.vm(vm_id);
+                let handle = fs.vm(&vm.id);
                 let result = handle.exec(cmd).await?.into_inner();
                 if json && !ssh {
                     return json_out(&serde_json::json!({
@@ -553,7 +550,7 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
             if ssh {
                 ssh_into_vm(fs, &vm.id, delete).await?;
             } else if delete {
-                fs.vm(vm_id).delete().await?;
+                fs.vm(&vm.id).delete().await?;
                 if !json {
                     eprintln!("VM deleted.");
                 }
@@ -580,8 +577,7 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
         }
 
         VmAction::Exec { id, command } => {
-            let vm_id: Uuid = id.parse()?;
-            let result = fs.vm(vm_id).exec(&command).await?.into_inner();
+            let result = fs.vm(&id).exec(&command).await?.into_inner();
             if json {
                 return json_out(&result);
             }
@@ -595,16 +591,14 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
         }
 
         VmAction::Start { id } => {
-            let vm_id: Uuid = id.parse()?;
-            fs.vm(vm_id).start().await?;
+            fs.vm(&id).start().await?;
             if !json {
                 println!("Started {id}");
             }
         }
 
         VmAction::Stop { id } => {
-            let vm_id: Uuid = id.parse()?;
-            fs.vm(vm_id).stop().await?;
+            fs.vm(&id).stop().await?;
             if !json {
                 println!("Stopped {id}");
             }
@@ -624,8 +618,7 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
         }
 
         VmAction::Snapshot { id } => {
-            let vm_id: Uuid = id.parse()?;
-            let resp = fs.vm(vm_id).snapshot().await?.into_inner();
+            let resp = fs.vm(&id).snapshot().await?.into_inner();
             if json {
                 return json_out(&resp);
             }

@@ -19,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("usage: watch_and_reload <vm-id> <command>");
         std::process::exit(1);
     }
-    let vm_id: uuid::Uuid = args[1].parse()?;
+    let vm_id = &args[1];
     let command = &args[2];
 
     let fs = Freestyle::from_env()?;

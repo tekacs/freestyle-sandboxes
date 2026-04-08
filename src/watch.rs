@@ -2,7 +2,6 @@ use crate::openapi::Client;
 use futures_core::Stream;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use uuid::Uuid;
 
 /// A file change event from the VM's watch-files endpoint.
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -85,7 +84,7 @@ impl Stream for FileChangeStream {
 /// Start watching for file changes in a VM.
 pub(crate) async fn watch_files(
     client: &Client,
-    vm_id: Uuid,
+    vm_id: &str,
     linux_username: Option<&str>,
 ) -> Result<FileChangeStream, WatchError> {
     let url = format!("{}/v1/vms/{vm_id}/watch-files", client.baseurl);
