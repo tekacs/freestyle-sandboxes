@@ -252,8 +252,9 @@ impl VmSpecBuilder {
             let mut after = None;
             let mut requires = None;
             if let Some(prev) = &last_name {
-                after = Some(vec![prev.clone()]);
-                requires = Some(vec![prev.clone()]);
+                let dep = normalize_unit_name(prev);
+                after = Some(vec![dep.clone()]);
+                requires = Some(vec![dep]);
             }
 
             let spec = SystemdUnitSpec {
@@ -321,8 +322,9 @@ impl VmSpecBuilder {
         let mut after = None;
         let mut requires = None;
         if let Some(prev) = &last_name {
-            after = Some(vec![prev.clone()]);
-            requires = Some(vec![prev.clone()]);
+            let dep = normalize_unit_name(prev);
+            after = Some(vec![dep.clone()]);
+            requires = Some(vec![dep]);
         }
 
         let spec = SystemdUnitSpec {
@@ -356,6 +358,15 @@ impl VmSpecBuilder {
 
     fn template_mut(&mut self) -> &mut VmTemplate {
         self.req.template.get_or_insert_with(VmTemplate::default)
+    }
+}
+
+/// Append `.service` suffix if not already present (matching JS SDK's normalizeSystemdServices).
+fn normalize_unit_name(name: &str) -> String {
+    if name.contains('.') {
+        name.to_string()
+    } else {
+        format!("{name}.service")
     }
 }
 

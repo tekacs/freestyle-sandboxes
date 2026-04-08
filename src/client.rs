@@ -72,8 +72,8 @@ impl Freestyle {
 
         let reqwest_client = reqwest::ClientBuilder::new()
             .default_headers(headers)
-            .connect_timeout(std::time::Duration::from_secs(15))
-            .timeout(std::time::Duration::from_secs(15))
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(300))
             .build()
             .expect("failed to build reqwest client");
 

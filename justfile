@@ -25,3 +25,11 @@ clippy:
 
 fmt:
     cargo fmt
+
+# Run integration tests (requires FREESTYLE_API_KEY)
+test-integration:
+    cargo test -- --ignored
+
+# Run a single integration test
+test-one name:
+    cargo test {{name}} -- --ignored

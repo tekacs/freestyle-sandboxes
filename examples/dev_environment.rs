@@ -58,6 +58,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => println!("No README.md: {e}"),
     }
 
-    println!("\nVM is running. Delete with: freestyle vm delete {}", vm_resp.id);
+    println!(
+        "\nVM is running. Delete with: freestyle vm delete {}",
+        vm_resp.id
+    );
     Ok(())
 }
