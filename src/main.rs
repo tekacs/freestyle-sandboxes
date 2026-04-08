@@ -88,9 +88,12 @@ enum VmAction {
         /// Execute a command after creation
         #[arg(long)]
         exec: Option<String>,
-        /// Delete VM after exec completes
+        /// SSH into VM after creation
         #[arg(long)]
-        delete_after: bool,
+        ssh: bool,
+        /// Delete VM on exit (after exec or SSH)
+        #[arg(long)]
+        delete_on_exit: bool,
     },
     /// List all VMs
     List,
@@ -120,6 +123,14 @@ enum VmAction {
     Delete {
         /// VM ID
         id: String,
+    },
+    /// SSH into a VM
+    Ssh {
+        /// VM ID
+        id: String,
+        /// Delete VM when SSH session ends
+        #[arg(long)]
+        delete_on_exit: bool,
     },
     /// Create a snapshot of a VM
     Snapshot {
@@ -334,6 +345,74 @@ fn json_out(val: &impl serde::Serialize) -> R {
     Ok(())
 }
 
+// --- SSH ---
+
+/// SSH into a VM by creating an ephemeral identity with VM permission,
+/// spawning an `ssh` process, and cleaning up on exit.
+async fn ssh_into_vm(fs: &Freestyle, vm_id: &str, delete_on_exit: bool) -> R {
+    eprintln!("Setting up SSH connection...");
+
+    // Create ephemeral identity
+    let identity = fs.client().handle_create_identity().await?.into_inner();
+    let identity_id = identity.id;
+    eprintln!("Created identity: {identity_id}");
+
+    // Grant VM permission
+    let body = GrantVmPermissionRequest {
+        allowed_users: None,
+    };
+    fs.client()
+        .handle_grant_vm_permission(&identity_id, vm_id, &body)
+        .await?;
+
+    // Create access token
+    let token_resp = fs
+        .client()
+        .handle_create_git_token(&identity_id)
+        .await?
+        .into_inner();
+    let token_id = token_resp.id;
+    let token = &token_resp.token;
+
+    let ssh_target = format!("{vm_id}:{token}@vm-ssh.freestyle.sh");
+    eprintln!("Connecting to VM {vm_id}...");
+    eprintln!("Command: ssh {ssh_target} -p 22\n");
+
+    // Spawn SSH
+    let status = tokio::process::Command::new("ssh")
+        .arg(&ssh_target)
+        .arg("-p")
+        .arg("22")
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .await?;
+
+    eprintln!(
+        "\nSSH session ended (exit: {}).",
+        status.code().unwrap_or(-1)
+    );
+
+    // Cleanup
+    eprintln!("Cleaning up identity and token...");
+    let _ = fs
+        .client()
+        .handle_revoke_git_token(&identity_id, &token_id)
+        .await;
+    let _ = fs.client().handle_delete_identity(&identity_id).await;
+    eprintln!("Cleanup complete.");
+
+    if delete_on_exit {
+        let vm_uuid: Uuid = vm_id.parse()?;
+        eprintln!("Deleting VM {vm_id}...");
+        fs.vm(vm_uuid).delete().await?;
+        eprintln!("VM deleted.");
+    }
+
+    Ok(())
+}
+
 // --- Whoami ---
 
 async fn cmd_whoami(fs: &Freestyle, json: bool) -> R {
@@ -361,7 +440,8 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
             port,
             apt,
             exec,
-            delete_after,
+            ssh,
+            delete_on_exit,
         } => {
             let mut builder = VmSpecBuilder::new()
                 .mem_size_gb(mem)
@@ -395,8 +475,9 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
                 eprintln!("Creating VM...");
             }
             let vm = fs.client().create_vm(&request).await?.into_inner();
+            let vm_id: Uuid = vm.id.parse()?;
 
-            if json && exec.is_none() {
+            if json && exec.is_none() && !ssh {
                 return json_out(&vm);
             }
 
@@ -408,10 +489,9 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
             }
 
             if let Some(cmd) = &exec {
-                let vm_id: Uuid = vm.id.parse()?;
                 let handle = fs.vm(vm_id);
                 let result = handle.exec(cmd).await?.into_inner();
-                if json {
+                if json && !ssh {
                     return json_out(&serde_json::json!({
                         "vm": vm,
                         "exec": result,
@@ -425,8 +505,9 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
                 }
             }
 
-            if delete_after {
-                let vm_id: Uuid = vm.id.parse()?;
+            if ssh {
+                ssh_into_vm(fs, &vm.id, delete_on_exit).await?;
+            } else if delete_on_exit {
                 fs.vm(vm_id).delete().await?;
                 if !json {
                     eprintln!("VM deleted.");
@@ -490,6 +571,10 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
             if !json {
                 println!("Deleted {id}");
             }
+        }
+
+        VmAction::Ssh { id, delete_on_exit } => {
+            ssh_into_vm(fs, &id, delete_on_exit).await?;
         }
 
         VmAction::Snapshot { id } => {
