@@ -1,7 +1,7 @@
 #[allow(unused_imports)]
-use progenitor_client::{encode_path, ClientHooks, OperationInfo, RequestBuilderExt};
-#[allow(unused_imports)]
 pub use progenitor_client::{ByteStream, ClientInfo, Error, ResponseValue};
+#[allow(unused_imports)]
+use progenitor_client::{ClientHooks, OperationInfo, RequestBuilderExt, encode_path};
 /// Types used as operation parameters and responses.
 #[allow(clippy::all)]
 pub mod types {
@@ -15779,8 +15779,8 @@ pub mod types {
             ::std::option::Option::Some(true)
         }
 
-        pub(super) fn systemd_unit_spec_wanted_by(
-        ) -> ::std::option::Option<::std::vec::Vec<::std::string::String>> {
+        pub(super) fn systemd_unit_spec_wanted_by()
+        -> ::std::option::Option<::std::vec::Vec<::std::string::String>> {
             ::std::option::Option::Some(vec!["multi-user.target".to_string()])
         }
 
