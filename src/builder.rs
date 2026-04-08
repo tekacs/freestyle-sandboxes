@@ -88,6 +88,11 @@ impl VmSpecBuilder {
         self
     }
 
+    pub fn discriminator(mut self, name: impl Into<String>) -> Self {
+        self.template_mut().discriminator = Some(name.into());
+        self
+    }
+
     pub fn snapshot_id(mut self, id: impl Into<String>) -> Self {
         self.req.snapshot_id = Some(SnapshotId(id.into()));
         self

@@ -32,10 +32,10 @@ enum Command {
     /// Execute a one-off script
     Run {
         /// Inline code to execute
-        #[arg(long, group = "source")]
+        #[arg(short, long, group = "source")]
         code: Option<String>,
         /// File containing code to execute
-        #[arg(long, group = "source")]
+        #[arg(short, long, group = "source")]
         file: Option<String>,
         /// Environment variables (KEY=VALUE)
         #[arg(short, long)]
@@ -64,6 +64,9 @@ enum Command {
 enum VmAction {
     /// Create a new VM
     Create {
+        /// VM name/discriminator
+        #[arg(short, long)]
+        name: Option<String>,
         /// Memory in GB
         #[arg(long, default_value = "1")]
         mem: i64,
@@ -74,26 +77,26 @@ enum VmAction {
         #[arg(long, default_value = "2")]
         disk: i64,
         /// Snapshot ID to create from
-        #[arg(long)]
+        #[arg(short, long)]
         snapshot: Option<String>,
         /// Custom domain
-        #[arg(long)]
+        #[arg(short, long)]
         domain: Option<String>,
         /// Port to expose (TARGET or TARGET:EXTERNAL)
-        #[arg(long)]
-        port: Option<String>,
+        #[arg(short, long, default_value = "3000")]
+        port: String,
         /// APT packages to install
         #[arg(long)]
         apt: Vec<String>,
         /// Execute a command after creation
-        #[arg(long)]
+        #[arg(short = 'x', long)]
         exec: Option<String>,
         /// SSH into VM after creation
         #[arg(long)]
         ssh: bool,
-        /// Delete VM on exit (after exec or SSH)
+        /// Delete VM after exec completes or when SSH session ends
         #[arg(long)]
-        delete_on_exit: bool,
+        delete: bool,
     },
     /// List all VMs
     List,
@@ -119,10 +122,10 @@ enum VmAction {
         /// VM ID
         id: String,
     },
-    /// Delete a VM
+    /// Delete one or more VMs
     Delete {
-        /// VM ID
-        id: String,
+        /// VM IDs
+        ids: Vec<String>,
     },
     /// SSH into a VM
     Ssh {
@@ -130,7 +133,7 @@ enum VmAction {
         id: String,
         /// Delete VM when SSH session ends
         #[arg(long)]
-        delete_on_exit: bool,
+        delete: bool,
     },
     /// Create a snapshot of a VM
     Snapshot {
@@ -189,7 +192,7 @@ enum GitAction {
     /// Create a git repository
     Create {
         /// Repository name
-        #[arg(long)]
+        #[arg(short, long)]
         name: Option<String>,
         /// Create as public
         #[arg(long)]
@@ -200,9 +203,19 @@ enum GitAction {
         /// Fork/import from URL
         #[arg(long)]
         source_url: Option<String>,
+        /// Revision (branch/tag/sha) for source URL
+        #[arg(long)]
+        source_rev: Option<String>,
     },
     /// List repositories
-    List,
+    List {
+        /// Maximum repositories to return
+        #[arg(long, default_value = "20")]
+        limit: i64,
+        /// Offset cursor
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
     /// Delete a repository
     Delete {
         /// Repository ID
@@ -215,7 +228,12 @@ enum GitAction {
 #[derive(Subcommand)]
 enum DomainAction {
     /// List verified domains
-    List,
+    List {
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
     /// Start domain verification
     Verify {
         /// Domain to verify
@@ -252,7 +270,15 @@ enum DomainAction {
         domain: String,
     },
     /// List domain mappings
-    Mappings,
+    Mappings {
+        /// Filter by domain
+        #[arg(long)]
+        domain: Option<String>,
+        #[arg(long, default_value = "50")]
+        limit: i64,
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
 }
 
 // --- Cron ---
@@ -297,6 +323,21 @@ enum CronAction {
     Executions {
         /// Schedule ID
         id: Uuid,
+        #[arg(long, default_value = "20")]
+        limit: i64,
+        #[arg(long, default_value = "0")]
+        offset: i64,
+    },
+    /// Get success rate over a time range
+    SuccessRate {
+        /// Schedule ID
+        id: Uuid,
+        /// Range start (ISO datetime)
+        #[arg(long)]
+        start: String,
+        /// Range end (ISO datetime)
+        #[arg(long)]
+        end: String,
     },
 }
 
@@ -349,7 +390,7 @@ fn json_out(val: &impl serde::Serialize) -> R {
 
 /// SSH into a VM by creating an ephemeral identity with VM permission,
 /// spawning an `ssh` process, and cleaning up on exit.
-async fn ssh_into_vm(fs: &Freestyle, vm_id: &str, delete_on_exit: bool) -> R {
+async fn ssh_into_vm(fs: &Freestyle, vm_id: &str, delete: bool) -> R {
     eprintln!("Setting up SSH connection...");
 
     // Create ephemeral identity
@@ -403,7 +444,7 @@ async fn ssh_into_vm(fs: &Freestyle, vm_id: &str, delete_on_exit: bool) -> R {
     let _ = fs.client().handle_delete_identity(&identity_id).await;
     eprintln!("Cleanup complete.");
 
-    if delete_on_exit {
+    if delete {
         let vm_uuid: Uuid = vm_id.parse()?;
         eprintln!("Deleting VM {vm_id}...");
         fs.vm(vm_uuid).delete().await?;
@@ -432,6 +473,7 @@ async fn cmd_whoami(fs: &Freestyle, json: bool) -> R {
 async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
     match action {
         VmAction::Create {
+            name,
             mem,
             vcpus,
             disk,
@@ -441,13 +483,16 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
             apt,
             exec,
             ssh,
-            delete_on_exit,
+            delete,
         } => {
             let mut builder = VmSpecBuilder::new()
                 .mem_size_gb(mem)
                 .vcpu_count(vcpus)
                 .rootfs_size_gb(disk);
 
+            if let Some(name) = name {
+                builder = builder.discriminator(name);
+            }
             if let Some(snap) = snapshot {
                 builder = builder.snapshot_id(snap);
             }
@@ -460,8 +505,8 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
                     vm_port: None,
                 }]);
             }
-            if let Some(port_str) = port {
-                let parts: Vec<&str> = port_str.split(':').collect();
+            {
+                let parts: Vec<&str> = port.split(':').collect();
                 let (target, external) = match parts.len() {
                     1 => (parts[0].parse::<i32>()?, 443),
                     2 => (parts[0].parse()?, parts[1].parse()?),
@@ -506,8 +551,8 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
             }
 
             if ssh {
-                ssh_into_vm(fs, &vm.id, delete_on_exit).await?;
-            } else if delete_on_exit {
+                ssh_into_vm(fs, &vm.id, delete).await?;
+            } else if delete {
                 fs.vm(vm_id).delete().await?;
                 if !json {
                     eprintln!("VM deleted.");
@@ -565,16 +610,17 @@ async fn cmd_vm(fs: &Freestyle, action: VmAction, json: bool) -> R {
             }
         }
 
-        VmAction::Delete { id } => {
-            let vm_id: Uuid = id.parse()?;
-            fs.vm(vm_id).delete().await?;
-            if !json {
-                println!("Deleted {id}");
+        VmAction::Delete { ids } => {
+            for id in &ids {
+                fs.vm(id).delete().await?;
+                if !json {
+                    println!("Deleted {id}");
+                }
             }
         }
 
-        VmAction::Ssh { id, delete_on_exit } => {
-            ssh_into_vm(fs, &id, delete_on_exit).await?;
+        VmAction::Ssh { id, delete } => {
+            ssh_into_vm(fs, &id, delete).await?;
         }
 
         VmAction::Snapshot { id } => {
@@ -747,6 +793,7 @@ async fn cmd_git(fs: &Freestyle, action: GitAction, json: bool) -> R {
             public,
             default_branch,
             source_url,
+            source_rev,
         } => {
             let body = HandleCreateRepoBody {
                 name,
@@ -754,7 +801,7 @@ async fn cmd_git(fs: &Freestyle, action: GitAction, json: bool) -> R {
                 default_branch,
                 source: source_url.map(|url| CreateRepoSource {
                     url,
-                    rev: None,
+                    rev: source_rev,
                     all_branches: None,
                     branch: None,
                     depth: None,
@@ -772,10 +819,10 @@ async fn cmd_git(fs: &Freestyle, action: GitAction, json: bool) -> R {
             println!("  https://git.freestyle.sh/{}", resp.repo_id);
         }
 
-        GitAction::List => {
+        GitAction::List { limit, offset } => {
             let resp = fs
                 .client()
-                .handle_list_repositories(Some(20), Some(0))
+                .handle_list_repositories(Some(limit), Some(offset))
                 .await?
                 .into_inner();
             if json {
@@ -799,10 +846,10 @@ async fn cmd_git(fs: &Freestyle, action: GitAction, json: bool) -> R {
 
 async fn cmd_domain(fs: &Freestyle, action: DomainAction, json: bool) -> R {
     match action {
-        DomainAction::List => {
+        DomainAction::List { limit, offset } => {
             let resp = fs
                 .client()
-                .handle_list_domains(None, None, None)
+                .handle_list_domains(None, Some(limit), Some(offset))
                 .await?
                 .into_inner();
             if json {
@@ -894,10 +941,14 @@ async fn cmd_domain(fs: &Freestyle, action: DomainAction, json: bool) -> R {
             }
         }
 
-        DomainAction::Mappings => {
+        DomainAction::Mappings {
+            domain,
+            limit,
+            offset,
+        } => {
             let resp = fs
                 .client()
-                .handle_list_domain_mappings(None, None, None, None)
+                .handle_list_domain_mappings(domain.as_deref(), None, Some(limit), Some(offset))
                 .await?
                 .into_inner();
             if json {
@@ -998,10 +1049,10 @@ async fn cmd_cron(fs: &Freestyle, action: CronAction, json: bool) -> R {
             }
         }
 
-        CronAction::Executions { id } => {
+        CronAction::Executions { id, limit, offset } => {
             let resp = fs
                 .client()
-                .handle_list_schedule_executions(&id, None, None)
+                .handle_list_schedule_executions(&id, Some(limit), Some(offset))
                 .await?
                 .into_inner();
             if json {
@@ -1010,6 +1061,29 @@ async fn cmd_cron(fs: &Freestyle, action: CronAction, json: bool) -> R {
             for e in &resp.executions {
                 println!("  {} {:?}", e.id, e.status);
             }
+        }
+
+        CronAction::SuccessRate { id, start, end } => {
+            let start_dt: chrono::DateTime<chrono::Utc> = start
+                .parse()
+                .map_err(|e| format!("invalid start datetime: {e}"))?;
+            let end_dt: chrono::DateTime<chrono::Utc> = end
+                .parse()
+                .map_err(|e| format!("invalid end datetime: {e}"))?;
+            let resp = fs
+                .client()
+                .handle_get_schedule_success_rate(&id, &end_dt, &start_dt)
+                .await?
+                .into_inner();
+            if json {
+                return json_out(&resp);
+            }
+            println!("Schedule: {id}");
+            println!("  Range:        {} → {}", resp.start, resp.end);
+            println!("  Total:        {}", resp.total);
+            println!("  Succeeded:    {}", resp.succeeded);
+            println!("  Failed:       {}", resp.failed);
+            println!("  Success rate: {}", resp.success_rate);
         }
     }
     Ok(())
